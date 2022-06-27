@@ -1,16 +1,28 @@
+MODEL:
+SETS:
+	OPERATION_TYPES : LATENCY;
+	OPERATIONS : BOOTSTRAPPED, START_TIME, BOOTSTRAP_START_TIME, FINISH_TIME;
+	CORES;
+	OPERATION_CORE_TABLE(OPERATIONS, CORES) : B2C;
+	OPERATION_TYPE_TABLE(OPERATIONS, OPERATION_TYPES) : OPERATION_IS_OF_TYPE;
+	!OPERATION_OPERATION_TABLE(OPERATIONS, OPERATIONS) : BOrder, BOOTSTRAP_ON_SAME_CORE;
+	OPERATION_OPERATION_TABLE(OPERATIONS, OPERATIONS) : BOrder;
+	OPERATION_DEPENDENCIES(OPERATIONS, OPERATIONS);
+ENDSETS
+
 DATA:
-	OPERATION_TYPES, LATENCY = @FILE(DDGs/random_graph5.LDT);
-	OPERATIONS = @FILE(DDGs/random_graph5.LDT);
-	OPERATION_IS_OF_TYPE = @FILE(DDGs/random_graph5.LDT);
-	OPERATION_DEPENDENCIES = @FILE(DDGs/random_graph5.LDT);
-	BOOTSTRAPPING_LATENCY = @FILE(DDGs/random_graph5.LDT);
+	OPERATION_TYPES, LATENCY = @FILE(DDGs/random_graph3_two_bootstrapping_cores.LDT);
+	OPERATIONS = @FILE(DDGs/random_graph3_two_bootstrapping_cores.LDT);
+	OPERATION_IS_OF_TYPE = @FILE(DDGs/random_graph3_two_bootstrapping_cores.LDT);
+	OPERATION_DEPENDENCIES = @FILE(DDGs/random_graph3_two_bootstrapping_cores.LDT);
+	BOOTSTRAPPING_LATENCY = @FILE(DDGs/random_graph3_two_bootstrapping_cores.LDT);
 ENDDATA
 
 ! Bootstrapping constraints defined in input file;
-@FILE(DDGs/random_graph5.LDT);
+@FILE(DDGs/random_graph3_two_bootstrapping_cores.LDT);
 
 DATA: !Input data specific to the limited bootstrapping model;
-	CORES = @FILE(DDGs/random_graph5.LDT);
+	CORES = @FILE(DDGs/random_graph3_two_bootstrapping_cores.LDT);
 ENDDATA
 
 @FOR( OPERATION_DEPENDENCIES(i, j) :
@@ -22,42 +34,16 @@ ENDDATA
 );
 
 @FOR(OPERATION_OPERATION_TABLE(i,j) | i #LT# j :
-	! This version uses all three variables;
-	! Seems to run the fastest despite the most variables and constraints;
-	BOOTSTRAP_ON_SAME_CORE(i,j) = BOOTSTRAPPED(i) * BOOTSTRAPPED(j) * @PROD(CORES(k) : B2C(i,k) #EQ# B2C(j,k));
-	! From the model description, it would seem #LT# should be used instead of #LE#.
-		However, this caused errors for some reason, allowing one BOrder to be true
-		even when the two operations had the same BOOTSTRAP_START_TIME.
-		Since the third following constraint ensures two instructions cannot start
-		bootstrapping on the same core at the same time anyway, it is safe to use #LE#;
-	BOrder(i,j) = BOOTSTRAP_ON_SAME_CORE(i,j) * (BOOTSTRAP_START_TIME(i) #LE# BOOTSTRAP_START_TIME(j));
-	BOrder(j,i) = BOOTSTRAP_ON_SAME_CORE(i,j) * (BOOTSTRAP_START_TIME(j) #LE# BOOTSTRAP_START_TIME(i));
-	BOrder(i,j) + BOrder(j,i) = BOOTSTRAP_ON_SAME_CORE(i,j);
+	!BOOTSTRAP_ON_SAME_CORE(i,j) = @SUM(CORES(k) : B2C(i,k) * B2C(j,k));
+	!BOrder(i,j) + BOrder(j,i) = BOOTSTRAP_ON_SAME_CORE(i,j);
 
 
 	!This version uses something like constant propogation or recalculation to eliminate the BOOTSTRAP_ON_SAME_CORE variable;
-	!BOrder(i,j) = (BOOTSTRAPPED(i) * BOOTSTRAPPED(j) * @PROD(CORES(k) : B2C(i,k) #EQ# B2C(j,k))) * (BOOTSTRAP_START_TIME(i) #LE# BOOTSTRAP_START_TIME(j));
-	!BOrder(j,i) = (BOOTSTRAPPED(i) * BOOTSTRAPPED(j) * @PROD(CORES(k) : B2C(i,k) #EQ# B2C(j,k))) * (BOOTSTRAP_START_TIME(j) #LE# BOOTSTRAP_START_TIME(i));
-	!(BOrder(i,j) + BOrder(j,i)) = (BOOTSTRAPPED(i) * BOOTSTRAPPED(j) * @PROD(CORES(k) : B2C(i,k) #EQ# B2C(j,k)));
-
-
-	!This version also eliminates the BOrder variable;
-	!(BOOTSTRAPPED(i) * BOOTSTRAPPED(j) * @PROD(CORES(k) : B2C(i,k) #EQ# B2C(j,k)) * 
-		(((BOOTSTRAP_START_TIME(i) #LE# BOOTSTRAP_START_TIME(j))) + (BOOTSTRAP_START_TIME(j) #LE# BOOTSTRAP_START_TIME(i)))) =
-		(BOOTSTRAPPED(i) * BOOTSTRAPPED(j) * @PROD(CORES(k) : B2C(i,k) #EQ# B2C(j,k)));
-
-
-	!This version eliminates BOrder only;
-	!BOOTSTRAP_ON_SAME_CORE(i,j) = BOOTSTRAPPED(i) * BOOTSTRAPPED(j) * @PROD(CORES(k) : B2C(i,k) #EQ# B2C(j,k));
-	!BOOTSTRAP_ON_SAME_CORE(i,j) *
-		((BOOTSTRAP_START_TIME(i) #L# BOOTSTRAP_START_TIME(j)) + (BOOTSTRAP_START_TIME(j) #LE# BOOTSTRAP_START_TIME(i))) =
-		BOOTSTRAP_ON_SAME_CORE(i,j);
+	BOrder(i,j) + BOrder(j,i) = @SUM(CORES(k) : B2C(i,k) * B2C(j,k));
 );
 
 @FOR(OPERATION_OPERATION_TABLE(i,j) | i #NE# j :
 	BOOTSTRAP_START_TIME(j) >= FINISH_TIME(i) * BOrder(i,j);
-	!This version eliminates the BOrder variable;
-	!BOOTSTRAP_START_TIME(j) >= FINISH_TIME(i) * BOOTSTRAPPED(i) * BOOTSTRAPPED(j) * @PROD(CORES(k) : B2C(i,k) #EQ# B2C(j,k)) * (BOOTSTRAP_START_TIME(i) #LT# BOOTSTRAP_START_TIME(j));
 );
 
 @FOR( OPERATION_TYPE_TABLE(i, j) | OPERATION_IS_OF_TYPE(i, j) #EQ# 1: 
